@@ -41,6 +41,13 @@ pub struct WorkspaceSettings {
     pub zoomed_padding: bool,
     pub window_decorations: settings::WindowDecorations,
     pub focus_follows_mouse: FocusFollowsMouse,
+    pub background_images: BackgroundImages,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BackgroundImages {
+    pub paths: Vec<String>,
+    pub opacity: f32,
 }
 
 #[derive(Copy, Clone, Deserialize)]
@@ -142,6 +149,14 @@ impl Settings for WorkspaceSettings {
                         .unwrap_or(250),
                 ),
             },
+            background_images: workspace
+                .background_images
+                .as_ref()
+                .map(|bg| BackgroundImages {
+                    paths: bg.paths.clone().unwrap_or_default(),
+                    opacity: bg.opacity.unwrap_or(0.1).clamp(0.0, 1.0),
+                })
+                .unwrap_or_default(),
         }
     }
 }

@@ -140,6 +140,25 @@ pub struct WorkspaceSettingsContent {
     /// Whether the focused panel follows the mouse location
     /// Default: false
     pub focus_follows_mouse: Option<FocusFollowsMouse>,
+    /// Background image settings. When one or more absolute paths are
+    /// provided, one is chosen at random on each Zed startup and rendered
+    /// as a semi-transparent overlay on top of the workspace.
+    pub background_images: Option<BackgroundImagesContent>,
+}
+
+#[with_fallible_options]
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom)]
+pub struct BackgroundImagesContent {
+    /// Absolute paths to candidate background images. One is picked at random
+    /// on each Zed startup. If empty, no image is rendered.
+    ///
+    /// Default: []
+    pub paths: Option<Vec<String>>,
+    /// Opacity of the background image, in the [0.0, 1.0] range.
+    ///
+    /// Default: 0.1
+    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
+    pub opacity: Option<f32>,
 }
 
 #[with_fallible_options]

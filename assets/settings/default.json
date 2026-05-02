@@ -807,6 +807,13 @@
   // Whether to resize all the panels in a dock when resizing the dock.
   // Can be a combination of "left", "right" and "bottom".
   "resize_all_panels_in_dock": ["left"],
+  // Background image settings. When one or more absolute paths are listed,
+  // a random one is picked each Zed startup and rendered as a semi-transparent
+  // overlay on top of the workspace. Leave `paths` empty to disable.
+  "background_images": {
+    "paths": [],
+    "opacity": 0.1,
+  },
   "project_panel": {
     // Whether to show the project panel button in the status bar
     "button": true,

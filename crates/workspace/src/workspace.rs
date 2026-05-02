@@ -63,9 +63,10 @@ use gpui::{
     Action, AnyEntity, AnyView, AnyWeakView, App, AsyncApp, AsyncWindowContext, Axis, Bounds,
     Context, CursorStyle, Decorations, DragMoveEvent, Entity, EntityId, EventEmitter, FocusHandle,
     Focusable, Global, HitboxBehavior, Hsla, KeyContext, Keystroke, ManagedView, MouseButton,
-    PathPromptOptions, Point, PromptLevel, Render, ResizeEdge, Size, Stateful, Subscription,
-    SystemWindowTabController, Task, TaskExt, Tiling, WeakEntity, WindowBounds, WindowHandle,
-    WindowId, WindowOptions, actions, canvas, point, relative, size, transparent_black,
+    ObjectFit, PathPromptOptions, Point, PromptLevel, Render, ResizeEdge, Size, Stateful,
+    StyledImage, Subscription, SystemWindowTabController, Task, TaskExt, Tiling, WeakEntity,
+    WindowBounds, WindowHandle, WindowId, WindowOptions, actions, canvas, img, point, relative,
+    size, transparent_black,
 };
 pub use history_manager::*;
 pub use item::{
@@ -133,10 +134,10 @@ use std::{
     process::ExitStatus,
     rc::Rc,
     sync::{
-        Arc, LazyLock,
+        Arc, LazyLock, OnceLock,
         atomic::{AtomicBool, AtomicUsize},
     },
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use task::{DebugScenario, SharedTaskContext, SpawnInTerminal};
 use theme::{ActiveTheme, ClientDecorationsExt, SystemAppearance};
@@ -9465,7 +9466,41 @@ impl Render for Workspace {
                     })
                     .child(self.toast_layer.clone()),
             )
+            .when_some(
+                pick_background_image(cx).filter(|(_, opacity)| *opacity > 0.0),
+                |this, (path, opacity)| {
+                    this.child(
+                        img(path)
+                            .absolute()
+                            .inset_0()
+                            .size_full()
+                            .object_fit(ObjectFit::Cover)
+                            .opacity(opacity),
+                    )
+                },
+            )
     }
+}
+
+fn pick_background_image(cx: &App) -> Option<(PathBuf, f32)> {
+    static PICKED: OnceLock<Option<PathBuf>> = OnceLock::new();
+    let settings = WorkspaceSettings::get_global(cx);
+    let opacity = settings.background_images.opacity;
+    let path = PICKED
+        .get_or_init(|| {
+            let paths = &settings.background_images.paths;
+            if paths.is_empty() {
+                return None;
+            }
+            let idx = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.subsec_nanos() as usize)
+                .unwrap_or(0)
+                % paths.len();
+            Some(PathBuf::from(&paths[idx]))
+        })
+        .clone()?;
+    Some((path, opacity))
 }
 
 impl WorkspaceStore {

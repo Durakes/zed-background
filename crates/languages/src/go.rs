@@ -673,10 +673,14 @@ impl ContextProvider for GoContextProvider {
                         if relative_pkg_dir.as_os_str().is_empty() {
                             ".".into()
                         } else {
-                            format!("./{}", relative_pkg_dir.to_string_lossy())
+                            // Normalize separators to `/` so `go test ./a/b` works on Windows.
+                            format!(
+                                "./{}",
+                                relative_pkg_dir.to_string_lossy().replace('\\', "/")
+                            )
                         }
                     })
-                    .unwrap_or_else(|| format!("{}", buffer_dir.to_string_lossy()));
+                    .unwrap_or_else(|| buffer_dir.to_string_lossy().replace('\\', "/"));
 
                 (GO_PACKAGE_TASK_VARIABLE.clone(), package_name)
             });
@@ -689,7 +693,7 @@ impl ContextProvider for GoContextProvider {
                 let module_dir = buffer_dir
                     .ancestors()
                     .find(|dir| dir.join("go.mod").is_file())
-                    .map(|dir| dir.to_string_lossy().into_owned())
+                    .map(|dir| dir.to_string_lossy().replace('\\', "/"))
                     .unwrap_or_else(|| ".".to_string());
 
                 (GO_MODULE_ROOT_TASK_VARIABLE.clone(), module_dir)
