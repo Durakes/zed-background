@@ -9488,19 +9488,46 @@ fn pick_background_image(cx: &App) -> Option<(PathBuf, f32)> {
     let opacity = settings.background_images.opacity;
     let path = PICKED
         .get_or_init(|| {
-            let paths = &settings.background_images.paths;
-            if paths.is_empty() {
+            let candidates = expand_background_image_paths(&settings.background_images.paths);
+            if candidates.is_empty() {
                 return None;
             }
             let idx = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.subsec_nanos() as usize)
                 .unwrap_or(0)
-                % paths.len();
-            Some(PathBuf::from(&paths[idx]))
+                % candidates.len();
+            Some(candidates.into_iter().nth(idx).unwrap())
         })
         .clone()?;
     Some((path, opacity))
+}
+
+fn expand_background_image_paths(paths: &[String]) -> Vec<PathBuf> {
+    const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
+    let mut out = Vec::new();
+    for raw in paths {
+        let path = PathBuf::from(raw);
+        if path.is_dir() {
+            let Ok(entries) = std::fs::read_dir(&path) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let entry_path = entry.path();
+                let is_image = entry_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| IMAGE_EXTENSIONS.iter().any(|ext| ext.eq_ignore_ascii_case(e)))
+                    .unwrap_or(false);
+                if is_image && entry_path.is_file() {
+                    out.push(entry_path);
+                }
+            }
+        } else {
+            out.push(path);
+        }
+    }
+    out
 }
 
 impl WorkspaceStore {

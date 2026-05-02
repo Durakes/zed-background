@@ -807,9 +807,11 @@
   // Whether to resize all the panels in a dock when resizing the dock.
   // Can be a combination of "left", "right" and "bottom".
   "resize_all_panels_in_dock": ["left"],
-  // Background image settings. When one or more absolute paths are listed,
-  // a random one is picked each Zed startup and rendered as a semi-transparent
-  // overlay on top of the workspace. Leave `paths` empty to disable.
+  // Background image settings. Each entry in `paths` may be an absolute path
+  // to an image file or to a folder. Folders are scanned (non-recursive) for
+  // image files (png, jpg, jpeg, webp, gif, bmp). One image is picked at
+  // random each Zed startup and rendered as a semi-transparent overlay on
+  // top of the workspace. Leave `paths` empty to disable.
   "background_images": {
     "paths": [],
     "opacity": 0.1,

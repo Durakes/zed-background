@@ -149,8 +149,10 @@ pub struct WorkspaceSettingsContent {
 #[with_fallible_options]
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom)]
 pub struct BackgroundImagesContent {
-    /// Absolute paths to candidate background images. One is picked at random
-    /// on each Zed startup. If empty, no image is rendered.
+    /// Absolute paths to candidate background images. Each entry may point to
+    /// an image file or to a folder; folders are scanned (non-recursive) for
+    /// image files (png, jpg, jpeg, webp, gif, bmp). One image is picked at
+    /// random on each Zed startup. If empty, no image is rendered.
     ///
     /// Default: []
     pub paths: Option<Vec<String>>,
