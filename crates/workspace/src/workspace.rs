@@ -137,7 +137,7 @@ use std::{
         Arc, LazyLock, OnceLock,
         atomic::{AtomicBool, AtomicUsize},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use task::{DebugScenario, SharedTaskContext, SpawnInTerminal};
 use theme::{ActiveTheme, ClientDecorationsExt, SystemAppearance};
@@ -9492,11 +9492,7 @@ fn pick_background_image(cx: &App) -> Option<(PathBuf, f32)> {
             if candidates.is_empty() {
                 return None;
             }
-            let idx = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.subsec_nanos() as usize)
-                .unwrap_or(0)
-                % candidates.len();
+            let idx = rand::random_range(0..candidates.len());
             Some(candidates.into_iter().nth(idx).unwrap())
         })
         .clone()?;
