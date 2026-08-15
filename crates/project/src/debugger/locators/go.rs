@@ -114,9 +114,11 @@ impl DapLocator for GoLocator {
 
                 for arg in build_config.args.iter().skip(1) {
                     if all_args_are_test || next_arg_is_test {
-                        // HACK: tasks assume that they are run in a shell context,
-                        // so the -run regex has escaped specials. Delve correctly
-                        // handles escaping, so we undo that here.
+                        // Zed's own Go tasks pass the `-run` regex unescaped, so
+                        // it reaches Delve as-is. User-authored tasks may still
+                        // carry the old `\^…\$` form, which assumed a POSIX
+                        // shell would strip the backslashes; Delve runs no
+                        // shell, so undo that escaping here.
                         if let Some((left, right)) = arg.split_once("/")
                             && left.starts_with("\\^")
                             && left.ends_with("\\$")

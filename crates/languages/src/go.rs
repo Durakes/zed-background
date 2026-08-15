@@ -643,6 +643,24 @@ const GO_TABLE_TEST_CASE_NAME_TASK_VARIABLE: VariableName =
 const GO_SUITE_NAME_TASK_VARIABLE: VariableName =
     VariableName::Custom(Cow::Borrowed("GO_SUITE_NAME"));
 
+/// Wraps a `go test -run`/`-bench` pattern in regex anchors.
+///
+/// Task args are concatenated into a single command line and handed to the
+/// user's shell verbatim (see `ShellBuilder::build_no_quote`), so the anchors
+/// have to survive every shell Zed supports. Bare `^…$` does: both characters
+/// are literal in POSIX shells, PowerShell and cmd alike, and `$` is only
+/// special when a name follows it — here it is always followed by `/` or the
+/// end of the argument.
+///
+/// The alternatives do not travel. `\^…\$` is unescaped only by POSIX shells,
+/// so PowerShell hands Go a literal `\^`, which matches no test at all
+/// ("no tests to run"), and cmd turns it into an invalid escape sequence.
+/// `'^…$'` leaks its quotes into the regex on Windows, and into Delve's `-run`
+/// over DAP, where no shell is involved to strip them.
+fn anchored_run_pattern(pattern: &str) -> String {
+    format!("^{pattern}$")
+}
+
 impl ContextProvider for GoContextProvider {
     fn build_context(
         &self,
@@ -753,9 +771,12 @@ impl ContextProvider for GoContextProvider {
                     "-v".into(),
                     "-run".into(),
                     format!(
-                        "\\^Test{}\\$/\\^{}\\$",
-                        GO_SUITE_NAME_TASK_VARIABLE.template_value(),
-                        VariableName::Symbol.template_value(),
+                        "{}/{}",
+                        anchored_run_pattern(&format!(
+                            "Test{}",
+                            GO_SUITE_NAME_TASK_VARIABLE.template_value()
+                        )),
+                        anchored_run_pattern(&VariableName::Symbol.template_value()),
                     ),
                 ],
                 cwd: package_cwd.clone(),
@@ -775,9 +796,11 @@ impl ContextProvider for GoContextProvider {
                     "-v".into(),
                     "-run".into(),
                     format!(
-                        "\\^{}\\$/\\^{}\\$",
-                        VariableName::Symbol.template_value(),
-                        GO_TABLE_TEST_CASE_NAME_TASK_VARIABLE.template_value(),
+                        "{}/{}",
+                        anchored_run_pattern(&VariableName::Symbol.template_value()),
+                        anchored_run_pattern(
+                            &GO_TABLE_TEST_CASE_NAME_TASK_VARIABLE.template_value()
+                        ),
                     ),
                 ],
                 cwd: package_cwd.clone(),
@@ -797,7 +820,7 @@ impl ContextProvider for GoContextProvider {
                 args: vec![
                     "test".into(),
                     "-run".into(),
-                    format!("\\^{}\\$", VariableName::Symbol.template_value(),),
+                    anchored_run_pattern(&VariableName::Symbol.template_value()),
                 ],
                 tags: vec!["go-test".to_owned()],
                 cwd: package_cwd.clone(),
@@ -813,7 +836,7 @@ impl ContextProvider for GoContextProvider {
                 args: vec![
                     "test".into(),
                     "-run".into(),
-                    format!("\\^{}\\$", VariableName::Symbol.template_value(),),
+                    anchored_run_pattern(&VariableName::Symbol.template_value()),
                 ],
                 tags: vec!["go-example".to_owned()],
                 cwd: package_cwd.clone(),
@@ -846,9 +869,9 @@ impl ContextProvider for GoContextProvider {
                     "-v".into(),
                     "-run".into(),
                     format!(
-                        "\\^{}\\$/\\^{}\\$",
-                        VariableName::Symbol.template_value(),
-                        GO_SUBTEST_NAME_TASK_VARIABLE.template_value(),
+                        "{}/{}",
+                        anchored_run_pattern(&VariableName::Symbol.template_value()),
+                        anchored_run_pattern(&GO_SUBTEST_NAME_TASK_VARIABLE.template_value()),
                     ),
                 ],
                 cwd: package_cwd.clone(),
@@ -865,9 +888,10 @@ impl ContextProvider for GoContextProvider {
                 args: vec![
                     "test".into(),
                     "-benchmem".into(),
-                    "-run='^$'".into(),
+                    // Matches no test, so only benchmarks run.
+                    format!("-run={}", anchored_run_pattern("")),
                     "-bench".into(),
-                    format!("\\^{}\\$", VariableName::Symbol.template_value()),
+                    anchored_run_pattern(&VariableName::Symbol.template_value()),
                 ],
                 cwd: package_cwd.clone(),
                 tags: vec!["go-benchmark".to_owned()],
@@ -884,7 +908,7 @@ impl ContextProvider for GoContextProvider {
                     "test".into(),
                     "-fuzz=Fuzz".into(),
                     "-run".into(),
-                    format!("\\^{}\\$", VariableName::Symbol.template_value(),),
+                    anchored_run_pattern(&VariableName::Symbol.template_value()),
                 ],
                 tags: vec!["go-fuzz".to_owned()],
                 cwd: package_cwd.clone(),
@@ -958,6 +982,73 @@ mod tests {
                 .unwrap()
                 .with_context_provider(Some(Arc::new(GoContextProvider))),
         )
+    }
+
+    #[gpui::test]
+    async fn test_go_test_templates_use_portable_regex_anchors(cx: &mut TestAppContext) {
+        let templates = cx
+            .update(|cx| GoContextProvider.associated_tasks(None, cx))
+            .await
+            .expect("Go context provider returns associated tasks");
+
+        // `resolve_task` returns `None` for any `ZED_` variable a template
+        // references but the context omits, so supply all of them.
+        let context = TaskContext {
+            cwd: None,
+            task_variables: TaskVariables::from_iter([
+                (VariableName::Symbol, "TestFoo".to_string()),
+                (GO_SUBTEST_NAME_TASK_VARIABLE, "simple_subtest".to_string()),
+                (
+                    GO_TABLE_TEST_CASE_NAME_TASK_VARIABLE,
+                    "table_case".to_string(),
+                ),
+                (GO_SUITE_NAME_TASK_VARIABLE, "Suite".to_string()),
+                (GO_PACKAGE_TASK_VARIABLE, ".".to_string()),
+                (VariableName::Dirname, "/tmp".to_string()),
+            ]),
+            project_env: HashMap::default(),
+        };
+
+        // `go-benchmark` anchors `-bench` rather than `-run`.
+        let expected_patterns = [
+            ("go-test", "-run", "^TestFoo$"),
+            ("go-example", "-run", "^TestFoo$"),
+            ("go-fuzz", "-run", "^TestFoo$"),
+            ("go-subtest", "-run", "^TestFoo$/^simple_subtest$"),
+            ("go-testify-suite", "-run", "^TestSuite$/^TestFoo$"),
+            ("go-table-test-case", "-run", "^TestFoo$/^table_case$"),
+            ("go-benchmark", "-bench", "^TestFoo$"),
+        ];
+
+        for (tag, flag, expected) in expected_patterns {
+            let template = templates
+                .0
+                .iter()
+                .find(|template| template.tags.iter().any(|template_tag| template_tag == tag))
+                .unwrap_or_else(|| panic!("`{tag}` task template exists"));
+
+            let resolved = template
+                .resolve_task("go", &context)
+                .unwrap_or_else(|| panic!("`{tag}` template resolves"));
+
+            let flag_index = resolved
+                .resolved
+                .args
+                .iter()
+                .position(|arg| arg == flag)
+                .unwrap_or_else(|| panic!("`{tag}` resolved args contain a `{flag}` flag"));
+            let pattern = &resolved.resolved.args[flag_index + 1];
+
+            // Bare `^…$` is the only anchor form that survives every shell Zed
+            // hands tasks to. Backslash-escaped anchors reach Go literally on
+            // PowerShell ("no tests to run") and become an invalid escape
+            // sequence under cmd; quotes leak into the regex on Windows and
+            // into Delve's shell-less DAP request.
+            assert_eq!(
+                pattern, expected,
+                "`{tag}` {flag} pattern must be anchored without shell escaping"
+            );
+        }
     }
 
     #[gpui::test]
@@ -1223,73 +1314,6 @@ mod tests {
             "Should find go-subtest tag, found: {:?}",
             tag_strings
         );
-    }
-
-    #[gpui::test]
-    async fn test_go_test_templates_run_arg_is_shell_escaped(cx: &mut TestAppContext) {
-        let templates = cx
-            .update(|cx| GoContextProvider.associated_tasks(None, cx))
-            .await
-            .expect("Go context provider returns associated tasks");
-
-        // `resolve_task` returns `None` for any `ZED_` variable a template
-        // references but the context omits, so supply all of them.
-        let context = TaskContext {
-            cwd: None,
-            task_variables: TaskVariables::from_iter([
-                (VariableName::Symbol, "TestFoo".to_string()),
-                (GO_SUBTEST_NAME_TASK_VARIABLE, "simple_subtest".to_string()),
-                (
-                    GO_TABLE_TEST_CASE_NAME_TASK_VARIABLE,
-                    "table_case".to_string(),
-                ),
-                (GO_SUITE_NAME_TASK_VARIABLE, "Suite".to_string()),
-                (GO_PACKAGE_TASK_VARIABLE, ".".to_string()),
-                (VariableName::Dirname, "/tmp".to_string()),
-            ]),
-            project_env: HashMap::default(),
-        };
-
-        // `go-benchmark` is excluded: its `-run='^$'` form intentionally quotes.
-        let escaped_run_arg_tags = [
-            "go-test",
-            "go-example",
-            "go-subtest",
-            "go-fuzz",
-            "go-testify-suite",
-            "go-table-test-case",
-        ];
-
-        for tag in escaped_run_arg_tags {
-            let template = templates
-                .0
-                .iter()
-                .find(|template| template.tags.iter().any(|template_tag| template_tag == tag))
-                .unwrap_or_else(|| panic!("`{tag}` task template exists"));
-
-            let resolved = template
-                .resolve_task("go", &context)
-                .unwrap_or_else(|| panic!("`{tag}` template resolves"));
-
-            let run_index = resolved
-                .resolved
-                .args
-                .iter()
-                .position(|arg| arg == "-run")
-                .unwrap_or_else(|| panic!("`{tag}` resolved args contain a `-run` flag"));
-            let run_arg = &resolved.resolved.args[run_index + 1];
-
-            assert!(
-                !run_arg.contains('\''),
-                "`{tag}` -run arg must not shell-quote the regex; single quotes leak \
-                 literally into Delve's regex and break Debug Test (#53230), got {run_arg:?}"
-            );
-            assert!(
-                run_arg.starts_with("\\^") && run_arg.ends_with("\\$"),
-                "`{tag}` -run arg must escape its regex anchors as \\^...\\$ so the shell \
-                 and GoLocator both strip them, got {run_arg:?}"
-            );
-        }
     }
 
     #[gpui::test]
